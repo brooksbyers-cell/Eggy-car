@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Peaceful Eggy Odyssey</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background: #87CEEB; }
+        #ui {
+            position: absolute; top: 25px; left: 25px;
+            font-family: 'Segoe UI', sans-serif; color: #2d5a27;
+            pointer-events: none; text-shadow: 1px 1px 0px white;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h2 id="dist">0m</h2>
+        <p><b>Arrow Keys</b> to balance. Gentle on the throttle!</p>
+    </div>
+
+<script>
+const { Engine, World, Bodies, Body, Constraint } = Matter;
+
+let engine, world;
+let car, egg, wheelA, wheelB;
+let terrain = [];
+let decoration = []; // Trees and clouds
+let isGameOver = false;
+let maxDistance = 0;
+
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    engine = Engine.create();
+    world = engine.world;
+    engine.gravity.y = 1.4;
+
+    initGame();
+}
+
+function initGame() {
+    // 1. Sleek, "Harder" Car Design (Lower walls make it easier for egg to escape)
+    const chassis = Bodies.rectangle(200, height - 200, 100, 15, { density: 0.005 });
+    const backWall = Bodies.rectangle(155, height - 215, 6, 30);
+    const frontWall = Bodies.rectangle(245, height - 215, 6, 20); // Front wall is lower!
+    
+    car = Body.create({
+        parts: [chassis, backWall, frontWall],
+        friction: 0.5,
+        label: 'car'
+    });
+
+    // 2. The Egg
+    egg = Bodies.circle(200, height - 250, 14, {
+        friction: 0.4,
+        restitution: 0.4,
+        density: 0.001
+    });
+
+    // 3. High-Performance Suspension
+    wheelA = Bodies.circle(165, height - 170, 25, { friction: 1.5, density: 0.01 });
+    wheelB = Bodies.circle(235, height - 170, 25, { friction: 1.5, density: 0.01 });
+
+    const springA = Constraint.create({
+        bodyA: car, pointA: { x: -35, y: 10 },
+        bodyB: wheelA, stiffness: 0.08, damping: 0.1, length: 35
+    });
+    const springB = Constraint.create({
+        bodyA: car, pointA: { x: 35, y: 10 },
+        bodyB: wheelB, stiffness: 0.08, damping: 0.1, length: 35
+    });
+
+    World.add(world, [car, egg, wheelA, wheelB, springA, springB]);
+
+    // Initial Terrain & Background
+    generateTerrain(0, height - 100);
+}
+
+function generateTerrain(startX, startY) {
+    let x = startX;
+    let y = startY;
+    for (let i = 0; i < 12; i++) {
+        let w = random(250, 500);
+        // Difficulty: Steeper height variances
+        let nextY = y + random(-120, 120); 
+        nextY = constrain(nextY, height * 0.3, height - 80);
+        
+        let ground = Bodies.rectangle(x + w/2, (y + nextY)/2 + 250, w + 5, 500, {
+            isStatic: true,
+            friction: 1,
+            angle: Math.atan2(nextY - y, w)
+        });
+        
+        terrain.push(ground);
+        World.add(world, ground);
+
+        // Add Peaceful Decorations
+        if (random() > 0.4) {
+            decoration.push({
+                x: x + w/2, 
+                y: (y + nextY)/2, 
+                type: 'tree', 
+                size: random(30, 60)
+            });
+        }
+        if (random() > 0.7) {
+            decoration.push({
+                x: x + w, 
+                y: random(50, 200), 
+                type: 'cloud', 
+                size: random(40, 80)
+            });
+        }
+
+        x += w;
+        y = nextY;
+    }
+}
+
+function draw() {
+    // Peaceful Blue Sky Gradient
+    drawSky();
+    
+    Engine.update(engine);
+    let camX = width / 3 - car.position.x;
+    push();
+    translate(camX, 0);
+
+    // Draw Atmosphere
+    drawDecorations();
+
+    // Draw Terrain (Grass)
+    fill(76, 175, 80);
+    noStroke();
+    terrain.forEach(t => {
+        beginShape();
+        t.vertices.forEach(v => vertex(v.x, v.y));
+        endShape(CLOSE);
+        // Grass "Highlight"
+        stroke(139, 195, 74);
+        strokeWeight(4);
+        line(t.vertices[0].x, t.vertices[0].y, t.vertices[1].x, t.vertices[1].y);
+        noStroke();
+    });
+
+    // Draw Car & Egg
+    drawEntity(car, [255, 193, 7]);
+    drawEntity(wheelA, [50, 50, 50]);
+    drawEntity(wheelB, [50, 50, 50]);
+
+    fill(255);
+    push();
+    translate(egg.position.x, egg.position.y);
+    rotate(egg.angle);
+    ellipse(0, 0, 28, 38);
+    pop();
+
+    pop();
+
+    if (!isGameOver) {
+        handleInput();
+        updateUI();
+        checkFail();
+        // Endless generation
+        if (car.position.x > terrain[terrain.length - 6].position.x) {
+            generateTerrain(terrain[terrain.length-1].position.x + 150, terrain[terrain.length-1].position.y - 250);
+        }
+    } else {
+        showGameOver();
+    }
+}
+
+function drawSky() {
+    for (let i = 0; i < height; i++) {
+        let inter = map(i, 0, height, 0, 1);
+        let c = lerpColor(color(135, 206, 235), color(255, 255, 255), inter);
+        stroke(c);
+        line(0, i, width, i);
+    }
+}
+
+function drawDecorations() {
+    decoration.forEach(d => {
+        if (d.type === 'tree') {
+            fill(101, 67, 33);
+            rect(d.x, d.y - d.size, d.size/4, d.size);
+            fill(34, 139, 34);
+            ellipse(d.x + d.size/8, d.y - d.size * 1.2, d.size, d.size);
+        } else {
+            fill(255, 255, 255, 200);
+            noStroke();
+            ellipse(d.x, d.y, d.size, d.size * 0.6);
+        }
+    });
+}
+
+function drawEntity(body, col) {
+    fill(col);
+    beginShape();
+    body.vertices.forEach(v => vertex(v.x, v.y));
+    endShape(CLOSE);
+}
+
+function handleInput() {
+    const power = 0.28;
+    if (keyIsDown(RIGHT_ARROW)) {
+        Body.setAngularVelocity(wheelA, power);
+        Body.setAngularVelocity(wheelB, power);
+    }
+    if (keyIsDown(LEFT_ARROW)) {
+        Body.setAngularVelocity(wheelA, -power);
+        Body.setAngularVelocity(wheelB, -power);
+    }
+}
+
+function updateUI() {
+    maxDistance = Math.max(maxDistance, Math.floor(car.position.x / 50));
+    document.getElementById('dist').innerText = maxDistance + "m";
+}
+
+function checkFail() {
+    let d = dist(car.position.x, car.position.y, egg.position.x, egg.position.y);
+    if (d > 140 || egg.position.y > height) isGameOver = true;
+}
+
+function showGameOver() {
+    textAlign(CENTER);
+    fill(45, 90, 39);
+    textSize(40);
+    text("The Egg has Returned to Nature", width/2, height/2);
+    textSize(20);
+    text("Press 'R' to try again", width/2, height/2 + 40);
+    if (keyIsDown(82)) location.reload(); // 'R' key
+}
+
+function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+</script>
+</body>
+</html>
